@@ -6,6 +6,7 @@
 #input: current path and file path where are the annotations 
 #output: list, each item of the list = the annotation of one image
 
+#here's a test for collaborative work, let me know it's come out fine!!!
 
 
 get_annotations <- function(path_code, path_annotations){
