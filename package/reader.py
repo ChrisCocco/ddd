@@ -48,7 +48,7 @@ def pb_inter(bp0, bp1, head):
 	pl1, pl2, al = [head[8], head[9]], [head[10], head[11]], head[3]
 	if bp0[al] == "point" and bp1[al] == "box":
 		x0, y0 = (float(bp0[pl1[0]]), float(bp0[pl1[1]]))
-		x1, y1, x2, y2 = (float(bp1[pl1[0]]), float(bp1[pl1[0]]), float(bp1[pl2[0]]),float(bp1[pl2[0]]))
+		x1, y1, x2, y2 = (float(bp1[pl1[0]]), float(bp1[pl1[1]]), float(bp1[pl2[0]]),float(bp1[pl2[1]]))
 		return True if (x1 <= x0 <= x2) and (y1 <= y0 <= y2) else False
 	elif bp0[al] == "box" and bp1[al] == "box":
 		x01, y01, x02, y02 = (float(bp0[pl1[0]]), float(bp0[pl1[1]]), float(bp0[pl2[0]]),float(bp0[pl2[1]]))
@@ -65,18 +65,27 @@ def get_annotation(file, inter=False):
 	"""
 	if inter:
 		a, h = ann_reader(file)
-		is_r1 = [x for x in a if x[h[1]] == "R1"]
+		is_r1 = [x for x in a if x[h[1]] == "R1"] # plusieur entres similaire !!!
+		# ok god par dessin
+		b = list()
+		is_c1_r1 = list()
 		if is_r1:
-			b = list()
-			for p0 in is_r1: is_c1_r1 = [x for x in a if pb_inter(p0, x, h) and x[h[1]] != "R1" and x[h[1]] == "C1"]
+			for p0 in is_r1: [is_c1_r1.append(x) for x in a if pb_inter(p0, x, h) and x[h[1]] != "R1" and x[h[1]] == "C1"]
 			for p1 in is_c1_r1: b.append([x[h[1]] for x in a if pb_inter(p1, x, h) and x[h[1]] != "R1" and x[h[1]] != "C1"])
 		else: b = []
 	else: b, h = ann_reader(file)
 	return b,h 
 
 # def get_annotation_gods(annotation)
-
-
+def make_sym(val, n):
+    # uses boolean mask
+    # uses the same lower tri as np.triu
+    n = int((n*n)/2)
+    mask = ~np.tri(n,k=-1,dtype=bool)
+    out = np.zeros((n,n),dtype=val.dtype)
+    out[mask] = val
+    out.T[mask] = val
+    return out
 
 if __name__ == '__main__':
 	import os
@@ -86,18 +95,22 @@ if __name__ == '__main__':
 	import itertools
 	import networkx as nx
 	import matplotlib.pyplot as plt
+	from itertools import compress
 
 	BASE_PATH  = get_data(tmp_path)
 	annotation_drawings = list() 
 	annotation_drawings_id = list()
+	a = 0
 	for annotation in [x for x in os.listdir(BASE_PATH) if x[:10]=="annotation"]:
 		drawing = get_annotation(BASE_PATH+annotation, True)
 		annotation_drawings.append((annotation, drawing[0]))
+		a += len(drawing[0])
+
+
 
 	### Counts by god representations
 	ann_by_god = [x[0] for x in [y[1] for y in annotation_drawings if y[1]] if x[0]]
 	id_by_god  = [y[0] for y in annotation_drawings if y[1] and [y[0]]*len(y[1][0])]
-
 	g = len(ann_by_god)
 	n = len(annotation_drawings)
 
@@ -120,7 +133,7 @@ if __name__ == '__main__':
 	rows = np.array(id_by_god , dtype='|S'+str(np.max([len(x) for x in id_by_god])))[:, np.newaxis]
 	data = np.char.mod("%10.0f", count_items_by_god)
 	with open('count_items_by_god.csv', 'w') as f:
-		np.savetxt(f, np.hstack((rows, data)), delimiter=', ', fmt='%s', header=str(rows))
+		np.savetxt(f, np.hstack((rows, data)), delimiter=', ', fmt='%s', header=str(items_unique))
 
 	# Binary table gods x items
 	binary_items_by_god = np.zeros((g,h))
@@ -129,7 +142,12 @@ if __name__ == '__main__':
 	rows = np.array(id_by_god , dtype='|S'+str(np.max([len(x) for x in id_by_god])))[:, np.newaxis]
 	data = np.char.mod("%10.0f", binary_items_by_god)
 	with open('binary_items_by_god.csv', 'w') as f:
-		np.savetxt(f, np.hstack((rows, data)), delimiter=', ', fmt='%s', header=str(rows))
+		np.savetxt(f, np.hstack((rows, data)), delimiter=', ', fmt='%s', header=str(items_unique))
+
+	# Ouput 1 expected 
+	unq, cnt = np.unique(binary_items_by_god, axis=0, return_counts=True)
+	with open('comb_empiracal_n.csv', 'w') as f:
+		np.savetxt(f, np.hstack((unq, cnt[:, np.newaxis])), delimiter=', ', fmt='%s', header=str(items_unique))
 
 	# Contengency table items x items
 	count_by_items = np.zeros((h,h))
@@ -152,15 +170,56 @@ if __name__ == '__main__':
 	with open('binary_by_items.csv', 'w') as f:
 		np.savetxt(f, np.hstack((rows, data)), delimiter=', ', fmt='%s')
 
+
 	# All combinaison possible of items
-	k = 2
-	comb_possible = np.math.factorial(h)/(np.math.factorial(h-k)*np.math.factorial(k))
-	dict_comb_items = dict()
-	dict_comb_items_binary = dict()
-	for item in itertools.combinations(items_unique, k):
-		a = [[x.count(y) for y in item] for x in ann_by_god]
-		b = [x for x in a if np.count_nonzero(x) == k]
-		dict_comb_items[item] = len(b)
+
+	all_comb = list()
+	for i in range(np.shape(binary_by_items)[0]):
+		all_comb.append(list(compress(items_unique, binary_by_items[i,:] > 0)))
+		#print(items_unique[list(binary_by_items[i,:] > 0)])
+
+	print(all_comb)
+		#print(binary_by_items[i])
+	
+	# #comb_possible = np.math.factorial(h)/(np.math.factorial(h-k)*np.math.factorial(k))
+	# dict_comb_items = dict()
+	# dict_comb_items_binary = dict()
+	# k = 2
+	# for i in range(1, k+1, 1):
+	# 	for item in itertools.combinations(items_unique, i):
+	# 		a = [[x.count(y) for y in item] for x in ann_by_god]
+	# 		b = [x for x in a if np.count_nonzero(x) == i]
+	# 		dict_comb_items[item] = len(b)
+
+	# print(dict_comb_items.keys())
+	# print(dict_comb_items.values())
+	# #comb_entries = len(list(dict_comb_items.values()))
+	# n = int(len(dict_comb_items.values()))
+	# id_entries = list(dict_comb_items.keys())
+	# id_entries_string = [ "%s %s" % x for x in id_entries]
+	# vals_entries = list(dict_comb_items.values())
+	# matrix = np.zeros((n,n), dtype=np.double)
+	# for i in range(n):
+	# 	for j in range(n):
+	# 		if id_entris[i] == id_entris[j]:
+	# 			matrix[i,j] = 0
+	# 		elif id_entris[i] != id_entris[j] and vals_entries[i] != 0. and vals_entries[j] !=0.:
+	# 			matrix[i,j] = 1.
+
+	# print(type(id_entris[0]))
+	# print(id_entris[0])
+	# rows = np.array(id_entris, dtype='|S'+str(np.max([len(x) for x in id_entris])))[:, np.newaxis]
+	# data = np.char.mod("%10.0f", matrix)
+	# with open('test.csv', 'w') as f:
+	# 	np.savetxt(f, np.hstack((rows, data)), delimiter=',', fmt='%s')
+
+	#print(matrix)
+
+
+	#test = make_sym_matrix(n, list(dict_comb_items.values()))
+	#test = fill_lower_diag(list_entries)
+	# print(dict_comb_items.keys())
+	#print(list(dict_comb_items.values()))
 
 	# print(dict_comb_items.items())
 	# rows = np.array(list(dict_comb_items.keys()), dtype='|S'+str(np.max([len(x) for x in dict_comb_items.keys()])))[:, np.newaxis]
@@ -169,10 +228,9 @@ if __name__ == '__main__':
 	# 	np.savetxt(f, np.hstack((rows, data.T)), delimiter=', ', fmt='%s')
 
 	#print(dict_comb_items)
-	print(dict_comb_items)
+	# print(dict_comb_items)
 	#print(comb_possible)
-	# print(dict_comb_items_binary)
-	G = nx.from_numpy_matrix(count_by_items)
+	G = nx.from_numpy_matrix(matrix)
 	nx.draw(G, with_labels=True, font_weight='bold')
 	plt.show()
 
